@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"mcenter.io/gomcenter"
@@ -11,34 +13,59 @@ import (
 	proto "github.com/hepengvip/mcenter-proto"
 )
 
+const (
+	DEFAULT_ADDR    = "localhost:8111"
+	DEFAULT_CHANNEL = "default"
+)
+
 func main() {
-	cli := gomcenter.NewMCenterClient("sub01", "localhost:8111")
-	reply, err := cli.Connect()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Received reply: [%s]%d:%s\n", reply.ReqId, reply.ReqCode, reply.ReqMsg)
+
+	var userId, channels, addr string
+	flag.StringVar(&userId, "uid", "", "userId")
+	flag.StringVar(&addr, "addr", DEFAULT_ADDR, "server address")
+	flag.StringVar(&channels, "channels", DEFAULT_CHANNEL, "channels, e.g. channel1,channel2,channel3")
+	flag.Parse()
+
+	channelNames := strings.Split(channels, ",")
+	if channelNames[0] == "" {
+		channelNames[0] = DEFAULT_CHANNEL
+	}
+
+	if userId == "" {
+		fmt.Fprintf(os.Stderr, "need userId\n")
 		return
 	}
+
+	cli := gomcenter.NewMCenterClient(userId, addr)
+	reply, err := cli.Connect()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Received reply: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stdout, "Received reply: [%s]%d:%s\n", reply.ReqId, reply.ReqCode, reply.ReqMsg)
 
 	ch := make(chan proto.Message, 100)
 	rCh := make(chan proto.Response, 100)
 	done := make(chan struct{})
 
-	cli.NewChannel("socket", "xsc01")
-	cli.NewChannel("default", "xsc02")
-	cli.Subscribe("default", "sub_def")
+	for idx, channel := range channelNames {
+		fmt.Println("Sub:", idx, channel)
+		cli.NewChannel(channel, fmt.Sprintf("newChan-%d", idx+1))
+		cli.Subscribe(channel, fmt.Sprintf("subChan-%d", idx+1))
+	}
 
 	go BeginReader(cli, ch, rCh, done)
 
-	BeginWriter(cli)
+	BeginWriter(cli, channelNames[0])
 }
 
-func BeginWriter(cli *gomcenter.MCenterClient) {
+func BeginWriter(cli *gomcenter.MCenterClient, channel string) {
 	ticker := time.NewTicker(time.Second * 1)
 	var idx uint64 = 0
 	for range ticker.C {
 		data := rand.Uint64()
 		msg := fmt.Sprintf("B%d:%dE", idx, data)
-		cli.Publish([]byte(msg), "default", fmt.Sprintf("index_%d", idx))
+		cli.Publish([]byte(msg), channel, fmt.Sprintf("index_%d", idx))
 		idx += 1
 	}
 }
