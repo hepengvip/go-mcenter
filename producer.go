@@ -31,6 +31,9 @@ func (m *Producer) Connect(userId string) error {
 		return err
 	}
 
+	m.conn = &conn
+	m.reader = bufio.NewReader(conn)
+
 	// send auth
 	msg := proto.Message{
 		ReqType: proto.MSG_SET_USER,
